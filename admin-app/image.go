@@ -14,6 +14,7 @@ import (
 	"github.com/fossoreslp/go-uuid-v4"
 	"github.com/gin-gonic/gin"
 	"github.com/matheusgomes28/urchin/common"
+	"github.com/nfnt/resize"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -126,6 +127,53 @@ func createMinifiedImages(image_path string) error {
 	return nil
 }
 
+func resizeImage(srcPath string, width uint) error {
+	// Open the source file
+	file, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("could not open source image: %v", err)
+	}
+	defer file.Close()
+
+	// Decode image
+	img, format, err := image.Decode(file)
+	if err != nil {
+		return fmt.Errorf("could not decode image: %v", err)
+	}
+
+	// Calculate height to maintain aspect ratio
+	bounds := img.Bounds()
+	ratio := float64(bounds.Dy()) / float64(bounds.Dx())
+	height := uint(float64(width) * ratio)
+
+	// Resize
+	resized := resize.Resize(width, height, img, resize.Lanczos3)
+
+	// Create new file
+	out, err := os.Create(srcPath)
+	if err != nil {
+		return fmt.Errorf("could not create output file: %v", err)
+	}
+	defer out.Close()
+
+	// Save based on format
+	switch format {
+	case "jpeg", "jpg":
+		err = jpeg.Encode(out, resized, &jpeg.Options{Quality: 85})
+	case "png":
+		err = png.Encode(out, resized)
+	case "gif":
+		// Note: GIF will lose animation
+		err = png.Encode(out, resized)
+	}
+
+	if err != nil {
+		return fmt.Errorf("could not encode resized image: %v", err)
+	}
+
+	return nil
+}
+
 // TODO : need these endpoints
 // r.POST("/images", postImageHandler(&database))
 // r.DELETE("/images", deleteImageHandler(&database))
@@ -189,11 +237,12 @@ func postImageHandler(app_settings common.AppSettings) func(*gin.Context) {
 			return
 		}
 
-		// Save lower dimensions of the image if needed
-		log.Info().Msgf("creating minified images for %s", image_path)
-		err = createMinifiedImages(image_path)
+		// Resize image to 477px width
+		err = resizeImage(image_path, 477)
 		if err != nil {
-			log.Error().Msgf("could not create minified images: %v", err)
+			log.Error().Msgf("could not resize image: %v", err)
+			os.Remove(image_path)
+			return
 		}
 
 		// End saving to filesystem
