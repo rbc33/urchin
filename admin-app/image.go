@@ -127,7 +127,7 @@ func createMinifiedImages(image_path string) error {
 	return nil
 }
 
-func resizeImage(srcPath string, width uint) error {
+func resizeImage(srcPath string, dstPath string, width uint) error {
 	// Open the source file
 	file, err := os.Open(srcPath)
 	if err != nil {
@@ -150,7 +150,7 @@ func resizeImage(srcPath string, width uint) error {
 	resized := resize.Resize(width, height, img, resize.Lanczos3)
 
 	// Create new file
-	out, err := os.Create(srcPath)
+	out, err := os.Create(dstPath)
 	if err != nil {
 		return fmt.Errorf("could not create output file: %v", err)
 	}
@@ -163,8 +163,10 @@ func resizeImage(srcPath string, width uint) error {
 	case "png":
 		err = png.Encode(out, resized)
 	case "gif":
-		// Note: GIF will lose animation
 		err = png.Encode(out, resized)
+		log.Warn().Msg("GIF detected: resized image saved as PNG format with .gif extension")
+	default:
+		return fmt.Errorf("unsupported image format: %s", format)
 	}
 
 	if err != nil {
@@ -236,12 +238,13 @@ func postImageHandler(app_settings common.AppSettings) func(*gin.Context) {
 			c.JSON(http.StatusInternalServerError, common.ErrorRes("failed to upload image", err))
 			return
 		}
-
 		// Resize image to 477px width
-		err = resizeImage(image_path, 477)
+		dstImagePath := filepath.Join(app_settings.ImageDirectory, fmt.Sprintf("%s_small%s", uuid.String(), ext))
+		log.Info().Msgf("Saving resized image to: %s", dstImagePath)
+		err = resizeImage(image_path, dstImagePath, 477)
 		if err != nil {
 			log.Error().Msgf("could not resize image: %v", err)
-			os.Remove(image_path)
+			c.JSON(http.StatusInternalServerError, common.ErrorRes("failed to resize image", err))
 			return
 		}
 
